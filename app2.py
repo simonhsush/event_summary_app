@@ -5,7 +5,6 @@ import pandas as pd
 import io
 import re
 from dateutil import parser as dateparser
-import docx
 from docx import Document
 from docx.shared import Inches
 from docx.enum.text import WD_COLOR_INDEX
@@ -296,4 +295,5 @@ if uploaded_file is not None:
 
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格，或相關段落中是否有日期字串。\n- 若檔案使用特殊日期格式（例如中文全形空白或非標準符號），可手動輸入精確日期字串作為比對條件。")
+
 
