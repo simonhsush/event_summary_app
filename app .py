@@ -276,7 +276,7 @@ if uploaded_file is not None:
 
              st.write(f"進入WORD 格式處理")
              #輸出到 Word 並反白
-             export_to_word(final, target_date)
+             export_to_word(final, str(target_date))
             
              st.write(f"WORD 格式 完成")
              
@@ -296,4 +296,5 @@ if uploaded_file is not None:
 
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格，或相關段落中是否有日期字串。\n- 若檔案使用特殊日期格式（例如中文全形空白或非標準符號），可手動輸入精確日期字串作為比對條件。")
+
 
