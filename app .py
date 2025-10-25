@@ -226,14 +226,14 @@ if uploaded_file is not None:
         for i, txt in enumerate(paragraphs):
             parsed = find_date_like_in_text(txt)
             if parsed and any(d == target_date for d in parsed):
-                start_index = text.find(target_date)
+                start_index = txt.find(target_date)
                 if start_index != -1:
                 # 包含日期本身，往後取 num_chars 個字
-                    snippet = text[start_index : start_index + len(target_date) + num_chars]
+                    snippet = txt[start_index : start_index + len(target_date) + num_chars]
 
                 # 若剩餘文字不足，安全裁切
-                    if len(snippet) > len(text) - start_index:
-                      snippet = text[start_index:]
+                    if len(snippet) > len(txt) - start_index:
+                      snippet = txt[start_index:]
                       para_matches.append((i, snippet))
             else:
                 # 或者包含文字型式 '前一個工作日' 或精確字串比對
@@ -305,6 +305,7 @@ if uploaded_file is not None:
 
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格，或相關段落中是否有日期字串。\n- 若檔案使用特殊日期格式（例如中文全形空白或非標準符號），可手動輸入精確日期字串作為比對條件。")
+
 
 
 
