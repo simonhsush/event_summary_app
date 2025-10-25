@@ -119,22 +119,19 @@ def export_to_word(data, target_date_str, filename="摘要輸出.docx"):
     doc.add_paragraph(f"搜尋日期關鍵字：{target_date_str}")
     doc.add_paragraph(" ")
 
-    for idx, row in enumerate(data, start=1):
+    for idx, row in enumerate(data["text"].astype(str).tolist(), start=1):
         p = doc.add_paragraph(f"{idx}. ")
-        run = p.add_run(row)
-        # 反白日期
         if target_date_str in row:
-            # 這裡的 target_date_str 是例如 "2025-10-22"
             start = row.find(target_date_str)
             before = row[:start]
             date_part = row[start:start+len(target_date_str)]
             after = row[start+len(target_date_str):]
-
-            p.clear()  # 清掉原本 run
             p.add_run(before)
             run_date = p.add_run(date_part)
             run_date.font.highlight_color = WD_COLOR_INDEX.YELLOW  # 反白日期
             p.add_run(after)
+        else:
+            p.add_run(row)
 
     doc.save(filename)
     return filename
@@ -226,10 +223,10 @@ if uploaded_file is not None:
         for i, txt in enumerate(paragraphs):
             parsed = find_date_like_in_text(txt)
             if parsed and any(d == target_date for d in parsed):
-                start_index = txt.find(target_date)
+                start_index = txt.find(str(target_date))
                 if start_index != -1:
                 # 包含日期本身，往後取 num_chars 個字
-                    snippet = txt[start_index : start_index + len(target_date) + num_chars]
+                    snippet = txt[start_index : start_index + len(str(target_date)) + num_chars]
 
                 # 若剩餘文字不足，安全裁切
                     if len(snippet) > len(txt) - start_index:
@@ -305,6 +302,7 @@ if uploaded_file is not None:
 
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格，或相關段落中是否有日期字串。\n- 若檔案使用特殊日期格式（例如中文全形空白或非標準符號），可手動輸入精確日期字串作為比對條件。")
+
 
 
 
