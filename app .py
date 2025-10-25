@@ -144,6 +144,7 @@ def export_to_word(data, target_date_str, filename="摘要輸出.docx"):
 # -----------------------
 uploaded_file = st.file_uploader("上傳 Word (.docx) 檔案", type=["docx"])
 st.write("（檔案內容只在本次執行中處理，不會上傳到任何外部伺服器）")
+num_chars = st.number_input("請輸入要擷取的字數", min_value=1, max_value=200, value=20)
 
 col1, col2 = st.columns([2, 1])
 
@@ -225,7 +226,15 @@ if uploaded_file is not None:
         for i, txt in enumerate(paragraphs):
             parsed = find_date_like_in_text(txt)
             if parsed and any(d == target_date for d in parsed):
-                para_matches.append((i, txt))
+                start_index = text.find(target_date)
+                if start_index != -1:
+                # 包含日期本身，往後取 num_chars 個字
+                    snippet = text[start_index : start_index + len(target_date) + num_chars]
+
+                # 若剩餘文字不足，安全裁切
+                    if len(snippet) > len(text) - start_index:
+                      snippet = text[start_index:]
+                      para_matches.append((i, snippet))
             else:
                 # 或者包含文字型式 '前一個工作日' 或精確字串比對
                 if target_date.isoformat() in txt or f"{target_date.year}年{target_date.month}月{target_date.day}日" in txt:
@@ -296,5 +305,6 @@ if uploaded_file is not None:
 
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格，或相關段落中是否有日期字串。\n- 若檔案使用特殊日期格式（例如中文全形空白或非標準符號），可手動輸入精確日期字串作為比對條件。")
+
 
 
