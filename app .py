@@ -206,7 +206,8 @@ if uploaded_file is not None:
             st.warning("請輸入有效的指定日期（YYYY-MM-DD）。")
             st.stop()
         target_date = user_date
-        target_date_str = target_date.isoformat()
+        # target_date_str = target_date.isoformat()
+        target_date_str = str(target_date)
 
     st.info(f"將比對的目標日期： {target_date_str}")
 
@@ -353,3 +354,4 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
