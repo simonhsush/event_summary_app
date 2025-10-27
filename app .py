@@ -1,167 +1,344 @@
+# app.py
 import streamlit as st
+from datetime import datetime, timedelta
 import pandas as pd
+import io
 import re
-from datetime import datetime
+from dateutil import parser as dateparser
+import docx
 from docx import Document
-from io import BytesIO
+from docx.enum.text import WD_COLOR_INDEX
 
-# ---------------------------
-# 🔹 日期處理：支援民國年、全形、底線、中文日期
-# ---------------------------
-def parse_to_western_date(date_str):
-    date_str = date_str.strip()
-    date_str = date_str.replace("／", "/").replace("－", "-").replace("_", "/")
+st.set_page_config(page_title="文件日期篩選摘要器", layout="wide")
+st.title("📄 Word 文件 — 找出含指定日期的欄位並產生摘要檔")
 
-    # 民國年轉換
-    match = re.match(r"^(\d{2,3})[/-](\d{1,2})[/-](\d{1,2})$", date_str)
-    if match:
-        year, month, day = map(int, match.groups())
-        if year < 200: # 民國年
-            year += 1911
-        try:
-            return datetime(year, month, day)
-        except ValueError:
-            return None
+st.markdown(
+    """
+上傳 `.docx`（可含表格或段落），選擇：
+- 使用「前一個工作日（前一個營業日）」或輸入**指定日期**，
+- 選擇要比對的欄位名稱（若 Word 內為表格會列出欄位供選），
+程式會找出在該欄位內含有目標日期（或日期字串）的列，並產生摘要檔下載。
+"""
+)
 
-    # 西元或其他格式
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d", "%m/%d", "%m-%d", "%m月%d日"):
-        try:
-            return datetime.strptime(date_str, fmt)
-        except ValueError:
-            continue
-    return None
+# -----------------------
+# 日期處理邏輯（保留原樣）
+# -----------------------
+def prev_business_day(ref_date=None):
+    if ref_date is None:
+        ref = datetime.now()
+    else:
+        ref = ref_date
+    one = timedelta(days=1)
+    d = ref - one
+    while d.weekday() >= 5:
+        d -= one
+    return d.date()
 
+date_regex = re.compile(
+    r'(?:(?:\d{4}[/-]\d{1,2}[/-]\d{1,2})|(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4})|(?:\d{1,2}[\u4e00-\u9fff]{1}\d{1,2}[\u4e00-\u9fff]{0,1}\d{0,2}))'
+)
+
+def extract_tables_to_dfs(doc):
+    dfs = []
+    for t in doc.tables:
+        rows = []
+        for r in t.rows:
+            rows.append([c.text.strip() for c in r.cells])
+        if len(rows) >= 2:
+            header = rows[0]
+            data = rows[1:]
+            try:
+                df = pd.DataFrame(data, columns=header)
+            except Exception:
+                df = pd.DataFrame(data)
+        else:
+            df = pd.DataFrame(rows)
+        dfs.append(df)
+    return dfs
 
 def find_date_like_in_text(text):
-    """找出文字中所有可能日期"""
-    text = text.replace("／", "/").replace("－", "-").replace("_", "/")
-    patterns = [
-        r"\d{3,4}[/-]\d{1,2}[/-]\d{1,2}",
-        r"\d{1,2}[/-]\d{1,2}",
-        r"\d{1,2}月\d{1,2}日"
-    ]
-    found_dates = []
-    for pat in patterns:
-        for m in re.finditer(pat, text):
-            d = parse_to_western_date(m.group())
-            if d:
-                found_dates.append(d)
-    return found_dates
+    found = []
+    for m in date_regex.findall(text):
+        s = m
+        try:
+            dt = dateparser.parse(s, dayfirst=False, fuzzy=True)
+            if dt:
+                found.append(dt.date())
+        except Exception:
+            continue
+    return found
 
-
+# -----------------------
+# 🔹 強化日期比對邏輯（支援 10/23、114/10/23、10_23、10月23日）
+# -----------------------
 def filter_df_by_date_in_column(df, column, target_date):
-    """在特定欄位中搜尋日期"""
     if column not in df.columns:
         return pd.DataFrame()
     matches = []
     for idx, cell in df[column].fillna("").items():
         text = str(cell)
-        normalized_text = text.replace("／", "/").replace("－", "-").replace("_", "/")
-        found = False
 
+        # 🔹 將底線與全形符號正規化
+        normalized_text = (
+            text
+            .replace("／", "/")
+            .replace("－", "-")
+            .replace("_", "/")
+            .replace("．", ".")
+        )
+
+        # 🔹 原邏輯 + 擴充格式
         td_strs = [
             target_date.strftime("%Y-%m-%d"),
             target_date.strftime("%Y/%m/%d"),
-            f"{target_date.month}/{target_date.day}",
-            f"{target_date.month:02d}/{target_date.day:02d}",
-            f"{target_date.month}-{target_date.day}",
+            target_date.strftime("%Y%m%d"),
+            target_date.strftime("%m/%d"),
+            f"{target_date.month}/{target_date.day}", # ← 無年份
         ]
-        td_chinese = f"{target_date.month}月{target_date.day}日"
 
-        if any(s in normalized_text for s in td_strs) or td_chinese in normalized_text:
+        td_chinese = f"{target_date.year}年{target_date.month}月{target_date.day}日"
+        td_chinese_short = f"{target_date.month}月{target_date.day}日" # ← 中文短格式
+        td_roc = f"{target_date.year - 1911}/{target_date.month}/{target_date.day}" # ← 民國年格式
+        td_roc_no_year = f"{target_date.month}/{target_date.day}" # ← 民國年省略情況
+
+        found = False
+        # 🔹 改在 normalized_text 裡找
+        if any(s in normalized_text for s in td_strs) or \
+           td_chinese in normalized_text or \
+           td_chinese_short in normalized_text or \
+           td_roc in normalized_text or \
+           td_roc_no_year in normalized_text:
             found = True
         else:
             parsed = find_date_like_in_text(normalized_text)
-            for d in parsed:
-                if d.year == target_date.year and d.month == target_date.month and d.day == target_date.day:
-                    found = True
-                    break
+            if parsed and any(d == target_date for d in parsed):
+                found = True
 
         if found:
-            matches.append(idx)
+            matches.append((idx, cell))
 
-    return df.loc[matches]
+    if not matches:
+        return pd.DataFrame()
+    return df.loc[[idx for idx, _ in matches]]
 
 
-# ---------------------------
-# 🔹 Streamlit 主介面
-# ---------------------------
-st.title("📄 日期段落擷取工具（支援民國、西元與中文格式）")
+# -----------------------
+# 匯出 Word — 從日期後取指定字數
+# -----------------------
+def export_to_word(data, target_date_str, num_chars, filename="摘要輸出.docx"):
+    doc = Document()
+    doc.add_heading("搜尋摘要結果", level=1)
+    doc.add_paragraph(f"搜尋日期關鍵字：{target_date_str}")
+    doc.add_paragraph(" ")
 
-uploaded_file = st.file_uploader("請上傳 Word 檔（.docx）", type=["docx"])
-if uploaded_file:
-    doc = Document(uploaded_file)
+    if "text" not in data.columns:
+        data = data.copy()
+        data["text"] = data.apply(lambda r: " ".join([str(x) for x in r.values if pd.notna(x)]), axis=1)
 
-    # 取出所有表格
-    dfs = []
-    for t in doc.tables:
-        data = []
-        for row in t.rows:
-            data.append([cell.text.strip() for cell in row.cells])
-        df = pd.DataFrame(data)
-        df.columns = df.iloc[0]
-        df = df[1:]
-        dfs.append(df)
-    if not dfs:
-        st.error("❌ 未找到表格內容，請確認檔案格式。")
+    for idx, row in enumerate(data["text"].astype(str).tolist(), start=1):
+        text = row
+        start_idx = text.find(target_date_str)
+        if start_idx == -1:
+            try:
+                parts = re.findall(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', target_date_str)
+                if parts:
+                    y, m, d = parts[0]
+                    chinese = f"{int(y)}年{int(m)}月{int(d)}日"
+                    start_idx = text.find(chinese)
+                    target_for_slice = chinese
+                else:
+                    target_for_slice = target_date_str
+            except Exception:
+                target_for_slice = target_date_str
+        else:
+            target_for_slice = target_date_str
+
+        if start_idx != -1:
+            slice_start = start_idx
+            slice_end = min(len(text), slice_start + len(target_for_slice) + num_chars)
+            snippet = text[slice_start:slice_end]
+        else:
+            snippet = ""
+
+        p = doc.add_paragraph(f"{idx}. ")
+        if snippet:
+            run = p.add_run(snippet)
+            run.font.highlight_color = WD_COLOR_INDEX.YELLOW
+        else:
+            p.add_run("(未找到可擷取的段落)")
+
+    doc.save(filename)
+    return filename
+
+
+# -----------------------
+# Streamlit UI
+# -----------------------
+uploaded_file = st.file_uploader("上傳 Word (.docx) 檔案", type=["docx"])
+st.write("（檔案內容只在本次執行中處理，不會上傳到任何外部伺服器）")
+
+num_chars = st.number_input("請輸入要擷取的字數（從日期字串之後開始計算，預設20）", min_value=1, max_value=1000, value=20)
+
+col1, col2 = st.columns([2, 1])
+with col1:
+    date_mode = st.radio("選擇目標日期：", ("前一個工作日", "輸入指定日期 (YYYY-MM-DD)"))
+    if date_mode == "輸入指定日期 (YYYY-MM-DD)":
+        user_date_str = st.text_input("指定日期 (例: 2025-10-22)", value="")
+        try:
+            user_date = dateparser.parse(user_date_str).date() if user_date_str.strip() else None
+        except Exception:
+            user_date = None
+    else:
+        user_date = None
+
+with col2:
+    st.write("進階選項")
+    prefer_table = st.checkbox("優先從表格欄位篩選 (若檔案含表格則列出欄位)", value=True)
+    download_format = st.selectbox("下載摘要格式", ["CSV", "純文字 (TXT)", "Word (.docx)"])
+
+# -----------------------
+# 主流程
+# -----------------------
+if uploaded_file is not None:
+    try:
+        doc = docx.Document(uploaded_file)
+    except Exception as e:
+        st.error(f"無法讀取 Word 檔：{e}")
         st.stop()
 
-    df_all = pd.concat(dfs, ignore_index=True)
-    st.success(f"✅ 已載入表格，共 {len(df_all)} 列。")
-
-    # 日期與設定
-    date_str = st.text_input("輸入日期（例如：114/10/23、2025/10/23 或 10/23）")
-    num_chars = st.number_input("擷取該日期後幾個字：", min_value=5, max_value=200, value=20, step=1)
-    colname = st.selectbox("選擇比對欄位", df_all.columns)
-
-    if st.button("執行擷取"):
-        target_date = parse_to_western_date(date_str)
-        if not target_date:
-            st.error("❌ 無法辨識日期格式，請重新輸入。")
+    if date_mode == "前一個工作日":
+        target_date = prev_business_day()
+        target_date_str = target_date.isoformat()
+    else:
+        if user_date is None:
+            st.warning("請輸入有效的指定日期（YYYY-MM-DD）。")
             st.stop()
+        target_date = user_date
+        target_date_str = str(target_date)
 
-        result_df = filter_df_by_date_in_column(df_all, colname, target_date)
-        if result_df.empty:
-            st.warning("⚠️ 找不到符合日期的資料。")
+    st.info(f"將比對的目標日期： {target_date_str}")
+
+    dfs = extract_tables_to_dfs(doc)
+    result_rows = []
+
+    if dfs and prefer_table:
+        st.write(f"偵測到 {len(dfs)} 個表格，正在掃描表格欄位...")
+        all_cols = set()
+        for df in dfs:
+            all_cols.update(list(df.columns))
+        all_cols = [c for c in all_cols if str(c).strip() != ""]
+        if all_cols:
+            chosen_cols = st.multiselect("選擇要比對的欄位（表格欄位）", options=all_cols, default=all_cols[:2])
         else:
-            # 擷取指定日期後的文字
-            def extract_text(row):
-                text = str(row[colname])
-                normalized = text.replace("／", "/").replace("－", "-").replace("_", "/")
-                for pat in [r"\d{3,4}[/-]\d{1,2}[/-]\d{1,2}", r"\d{1,2}[/-]\d{1,2}", r"\d{1,2}月\d{1,2}日"]:
-                    for m in re.finditer(pat, normalized):
-                        d = parse_to_western_date(m.group())
-                        if d and d.month == target_date.month and d.day == target_date.day:
-                            start = m.start()
-                            return normalized[start:start + num_chars]
-                return text[:num_chars]
+            chosen_cols = []
+        if chosen_cols:
+            for i, df in enumerate(dfs):
+                df = df.astype(str)
+                for col in chosen_cols:
+                    filtered = filter_df_by_date_in_column(df, col, target_date)
+                    if not filtered.empty:
+                        filtered = filtered.copy()
+                        snippets = []
+                        for _, r in filtered.iterrows():
+                            cell_text = str(r[col])
+                            td_candidates = [
+                                target_date.strftime("%Y-%m-%d"),
+                                target_date.strftime("%Y/%m/%d"),
+                                f"{target_date.year}年{target_date.month}月{target_date.day}日"
+                            ]
+                            start_idx = -1
+                            chosen_td = None
+                            for td in td_candidates:
+                                if td in cell_text:
+                                    start_idx = cell_text.find(td)
+                                    chosen_td = td
+                                    break
+                            if start_idx != -1:
+                                end_idx = min(len(cell_text), start_idx + len(chosen_td) + num_chars)
+                                snippet = cell_text[start_idx:end_idx]
+                            else:
+                                snippet = ""
+                            snippets.append(snippet)
+                        filtered = filtered.reset_index(drop=True)
+                        filtered["text"] = snippets
+                        filtered["_source_table"] = f"table_{i+1}"
+                        filtered["_matched_column"] = col
+                        filtered = filtered[filtered["text"].str.strip() != ""]
+                        if not filtered.empty:
+                            result_rows.append(filtered)
 
-            result_df["摘要內容"] = result_df.apply(extract_text, axis=1)
+    if not result_rows:
+        st.write("從段落中搜尋含有目標日期的文字...")
+        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        para_matches = []
 
-            # 高亮顯示
-            def highlight(val):
-                if isinstance(val, str) and any(str(x) in val for x in [date_str, date_str.replace("114", "2025")]):
-                    return "background-color: yellow"
-                return ""
+        for i, txt in enumerate(paragraphs):
+            parsed = find_date_like_in_text(txt)
+            if parsed and any(d == target_date for d in parsed):
+                td_candidates = [
+                    target_date.strftime("%Y-%m-%d"),
+                    target_date.strftime("%Y/%m/%d"),
+                    f"{target_date.year}年{target_date.month}月{target_date.day}日"
+                ]
+                start_idx = -1
+                chosen_td = None
+                for td in td_candidates:
+                    if td in txt:
+                        start_idx = txt.find(td)
+                        chosen_td = td
+                        break
+                if start_idx != -1:
+                    end_idx = min(len(txt), start_idx + len(chosen_td) + num_chars)
+                    snippet = txt[start_idx:end_idx]
+                    para_matches.append((i, snippet))
 
-            st.dataframe(result_df.style.applymap(highlight, subset=[colname]))
+        if para_matches:
+            dfp = pd.DataFrame(para_matches, columns=["para_index", "text"])
+            dfp["_source_table"] = "paragraphs"
+            dfp["_matched_column"] = "text"
+            result_rows.append(dfp)
 
-            # Word 匯出
-            doc_out = Document()
-            for _, r in result_df.iterrows():
-                doc_out.add_paragraph(f"{r[colname]} → {r['摘要內容']}")
-            buf = BytesIO()
-            doc_out.save(buf)
-            st.download_button("⬇️ 下載 Word 檔", buf.getvalue(), "date_extract_summary.docx")
+    if result_rows:
+        final = pd.concat(result_rows, ignore_index=True, sort=False)
+        final = final[final["text"].astype(str).str.strip() != ""].reset_index(drop=True)
 
-            # Excel 匯出
-            excel_buf = BytesIO()
-            result_df.to_excel(excel_buf, index=False)
-            st.download_button("⬇️ 下載 Excel 檔", excel_buf.getvalue(), "date_extract_summary.xlsx")
+        st.subheader("找到的結果範例（前 50 列）")
+        st.dataframe(final.head(50))
+        st.write(f"共找到 {len(final)} 筆符合目標日期 ({target_date_str}) 的項目。")
 
-            # TXT 匯出
-            txt_buf = BytesIO()
-            txt_buf.write("\n".join(result_df["摘要內容"]).encode("utf-8"))
-            st.download_button("⬇️ 下載 TXT 檔", txt_buf.getvalue(), "date_extract_summary.txt")
-
-            st.success("✅ 已完成擷取並可下載。")
+        if download_format == "CSV":
+            towrite = io.StringIO()
+            final.to_csv(towrite, index=False, encoding="utf-8-sig")
+            st.download_button(
+                "下載 CSV 檔（UTF-8-SIG）",
+                data=towrite.getvalue().encode("utf-8-sig"),
+                file_name=f"summary_{target_date_str}.csv",
+                mime="text/csv"
+            )
+        elif download_format == "純文字 (TXT)":
+            txt_buf = io.StringIO()
+            for i, row in final.iterrows():
+                txt_buf.write(f"來源: {row.get('_source_table','')}, 欄位: {row.get('_matched_column','')}\n")
+                txt_buf.write(f"{row.get('text','')}\n")
+                txt_buf.write("----\n")
+            st.download_button(
+                "下載 TXT 檔",
+                data=txt_buf.getvalue().encode("utf-8"),
+                file_name=f"summary_{target_date_str}.txt",
+                mime="text/plain"
+            )
+        elif download_format == "Word (.docx)":
+            export_to_word(final, target_date_str, num_chars, filename="日期段落摘要.docx")
+            out_doc = docx.Document("日期段落摘要.docx")
+            word_stream = io.BytesIO()
+            out_doc.save(word_stream)
+            word_stream.seek(0)
+            st.download_button(
+                "下載 Word 摘要檔",
+                data=word_stream,
+                file_name=f"summary_{target_date_str}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
+    else:
+        st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
