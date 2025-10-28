@@ -44,22 +44,27 @@ def extract_tables_to_dfs(doc):
     for t in doc.tables:
         rows = []
         for r in t.rows:
-            # 清理隱藏字元與換行
-            cleaned_cells = [re.sub(r'[\u200b\r\n]+', '', c.text.strip()) for c in r.cells]
+            cleaned_cells = [re.sub(r'[\u200b\r\n\t]+', '', c.text.strip()) for c in r.cells]
             rows.append(cleaned_cells)
 
         if len(rows) < 2:
             continue
 
-        # 自動找第一個有內容的列當標題
-        header_row_idx = 0
-        for i, r in enumerate(rows):
-            if any(cell.strip() for cell in r):
-                header_row_idx = i
-                break
+        # --- 改良邏輯：雙層檢查 ---
+        # 1️⃣ 若第一列任何一格有可見字元，直接當標題
+        if any(cell.strip() for cell in rows[0]):
+            header_row_idx = 0
+        else:
+            # 2️⃣ 否則找下一個有內容的列作為標題
+            header_row_idx = next((i for i, r in enumerate(rows) if any(cell.strip() for cell in r)), 0)
 
         header = rows[header_row_idx]
         data = rows[header_row_idx + 1:]
+
+        # 若欄位長度不一致，用 NaN 補齊
+        max_len = max(len(r) for r in data) if data else len(header)
+        header = header + [""] * (max_len - len(header))
+        data = [r + [""] * (max_len - len(r)) for r in data]
 
         try:
             df = pd.DataFrame(data, columns=header)
@@ -67,6 +72,7 @@ def extract_tables_to_dfs(doc):
             df = pd.DataFrame(data)
 
         dfs.append(df)
+
     return dfs
 
 
@@ -336,5 +342,6 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
 
 
