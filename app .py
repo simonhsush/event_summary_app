@@ -8,6 +8,7 @@ from dateutil import parser as dateparser
 import docx
 from docx import Document
 from docx.enum.text import WD_COLOR_INDEX
+from lxml import etree
 
 st.set_page_config(page_title="文件日期篩選摘要器", layout="wide")
 st.title("📄 Word 文件 — 找出含指定日期的欄位並產生摘要檔")
@@ -39,38 +40,44 @@ date_regex = re.compile(
     r'(?:(?:\d{4}[/-]\d{1,2}[/-]\d{1,2})|(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4})|(?:\d{1,2}[\u4e00-\u9fff]{1}\d{1,2}[\u4e00-\u9fff]{0,1}\d{0,2}))'
 )
 
+
 def extract_tables_to_dfs(doc):
     dfs = []
-    for t in doc.tables:
-        rows = []
-        for r in t.rows:
-            cleaned_cells = [re.sub(r'[\u200b\r\n\t]+', '', c.text.strip()) for c in r.cells]
-            rows.append(cleaned_cells)
+    # 從 docx.Document 取得底層 XML
+    xml_content = doc.element.xml
+    root = etree.fromstring(xml_content.encode("utf-8"))
 
-        if len(rows) < 2:
+    # 抓所有表格節點
+    tables = root.findall(".//w:tbl", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"})
+
+    for tbl in tables:
+        rows = []
+        for tr in tbl.findall(".//w:tr", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}):
+            cells = []
+            for tc in tr.findall(".//w:tc", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}):
+                # 每個儲存格抓取所有段落文字
+                texts = [t.text for t in tc.findall(".//w:t", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}) if t.text]
+                cell_text = "\n".join(texts).strip()
+                cells.append(cell_text)
+            if any(cells):
+                rows.append(cells)
+
+        if not rows:
             continue
 
-        # --- 核心修法：找出「最有可能是標題列」的那一列 ---
-        # 規則：
-        # 1️⃣ 含最多非空格文字的列
-        # 2️⃣ 欄位數與下一列接近
-        header_candidates = [(i, sum(1 for c in r if c.strip()), len(r)) for i, r in enumerate(rows)]
-        header_candidates = sorted(header_candidates, key=lambda x: (-x[1], -x[2]))
-        header_row_idx = header_candidates[0][0]
+        # 使用真正的第一列作為表頭
+        header = rows[0]
+        data = rows[1:]
 
-        header = rows[header_row_idx]
-        data = rows[header_row_idx + 1:]
-
-        # 欄位補齊
-        max_len = max(len(r) for r in data) if data else len(header)
-        header = header + [""] * (max_len - len(header))
+        # 對齊欄位長度
+        max_len = max(len(r) for r in rows)
+        header += [""] * (max_len - len(header))
         data = [r + [""] * (max_len - len(r)) for r in data]
 
         try:
             df = pd.DataFrame(data, columns=header)
         except Exception:
             df = pd.DataFrame(data)
-
         dfs.append(df)
 
     return dfs
@@ -342,6 +349,7 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
 
 
 
