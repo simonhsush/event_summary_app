@@ -44,18 +44,31 @@ def extract_tables_to_dfs(doc):
     for t in doc.tables:
         rows = []
         for r in t.rows:
-            rows.append([c.text.strip() for c in r.cells])
-        if len(rows) >= 2:
-            header = rows[0]
-            data = rows[1:]
-            try:
-                df = pd.DataFrame(data, columns=header)
-            except Exception:
-                df = pd.DataFrame(data)
-        else:
-            df = pd.DataFrame(rows)
+            # 清理隱藏字元與換行
+            cleaned_cells = [re.sub(r'[\u200b\r\n]+', '', c.text.strip()) for c in r.cells]
+            rows.append(cleaned_cells)
+
+        if len(rows) < 2:
+            continue
+
+        # 自動找第一個有內容的列當標題
+        header_row_idx = 0
+        for i, r in enumerate(rows):
+            if any(cell.strip() for cell in r):
+                header_row_idx = i
+                break
+
+        header = rows[header_row_idx]
+        data = rows[header_row_idx + 1:]
+
+        try:
+            df = pd.DataFrame(data, columns=header)
+        except Exception:
+            df = pd.DataFrame(data)
+
         dfs.append(df)
     return dfs
+
 
 def find_date_like_in_text(text):
     found = []
@@ -136,37 +149,18 @@ def export_to_word(data, target_date_str, num_chars, filename="摘要輸出.docx
         data = data.copy()
         data["text"] = data.apply(lambda r: " ".join([str(x) for x in r.values if pd.notna(x)]), axis=1)
 
-    for idx, row in enumerate(data["text"].astype(str).tolist(), start=1):
-        text = row
-        start_idx = text.find(target_date_str)
-        if start_idx == -1:
-            try:
-                parts = re.findall(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', target_date_str)
-                if parts:
-                    y, m, d = parts[0]
-                    chinese = f"{int(y)}年{int(m)}月{int(d)}日"
-                    start_idx = text.find(chinese)
-                    target_for_slice = chinese
-                else:
-                    target_for_slice = target_date_str
-            except Exception:
-                target_for_slice = target_date_str
-        else:
-            target_for_slice = target_date_str
+    for idx, row in data.iterrows():
+        src = row.get("_source_table", "")
+        col = row.get("_matched_column", "")
+        snippet = str(row.get("text", "")).strip()
 
-        if start_idx != -1:
-            slice_start = start_idx
-            slice_end = min(len(text), slice_start + len(target_for_slice) + num_chars)
-            snippet = text[slice_start:slice_end]
-        else:
-            snippet = ""
-
-        p = doc.add_paragraph(f"{idx}. ")
+        p = doc.add_paragraph(f"{idx+1}. 來源: {src}, 欄位: {col}\n")
         if snippet:
             run = p.add_run(snippet)
             run.font.highlight_color = WD_COLOR_INDEX.YELLOW
         else:
             p.add_run("(未找到可擷取的段落)")
+        doc.add_paragraph("----")
 
     doc.save(filename)
     return filename
@@ -342,4 +336,5 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
 
