@@ -223,53 +223,66 @@ if uploaded_file is not None:
     result_rows = []
 
     if dfs and prefer_table:
-        st.write(f"偵測到 {len(dfs)} 個表格，正在掃描表格欄位...")
-        all_cols = set()
-        for df in dfs:
-            # 10/28 16:30 16:38復原
-            all_cols.update(list(df.columns))
-            
+    st.write(f"偵測到 {len(dfs)} 個表格，以下為各表格的預覽與比對設定：")
 
-        all_cols = [c for c in all_cols if str(c).strip() != ""]
-        if all_cols:
-            chosen_cols = st.multiselect("選擇要比對的欄位（表格欄位）", options=all_cols, default=all_cols[:2])
-        else:
-            chosen_cols = []
-        if chosen_cols:
-            for i, df in enumerate(dfs):
-                df = df.astype(str)
-                for col in chosen_cols:
-                    filtered = filter_df_by_date_in_column(df, col, target_date)
+    result_rows = []
+
+    for i, df in enumerate(dfs, start=1):
+        with st.expander(f"📋 表格 {i} 預覽", expanded=True):
+            df = df.astype(str)
+
+            st.dataframe(df.head(50), use_container_width=True)
+
+            # 自動抓出欄位名稱
+            table_cols = [c for c in df.columns if str(c).strip() != ""]
+            if not table_cols:
+                st.warning("此表格沒有可辨識的欄位名稱（可能缺少標題列）。")
+                continue
+
+            # 預設所有欄位都勾選
+            chosen_cols = st.multiselect(
+                f"表格 {i} — 選擇要比對的欄位",
+                options=table_cols,
+                default=table_cols
+            )
+
+            # 若使用者沒有選任何欄位就跳過
+            if not chosen_cols:
+                continue
+
+            # 執行比對
+            for col in chosen_cols:
+                filtered = filter_df_by_date_in_column(df, col, target_date)
+                if not filtered.empty:
+                    filtered = filtered.copy()
+                    snippets = []
+                    for _, r in filtered.iterrows():
+                        cell_text = str(r[col])
+                        td_candidates = [
+                            target_date.strftime("%Y-%m-%d"),
+                            target_date.strftime("%Y/%m/%d"),
+                            f"{target_date.year}年{target_date.month}月{target_date.day}日"
+                        ]
+                        start_idx = -1
+                        chosen_td = None
+                        for td in td_candidates:
+                            if td in cell_text:
+                                start_idx = cell_text.find(td)
+                                chosen_td = td
+                                break
+                        if start_idx != -1:
+                            end_idx = min(len(cell_text), start_idx + len(chosen_td) + num_chars)
+                            snippet = cell_text[start_idx:end_idx]
+                        else:
+                            snippet = ""
+                        snippets.append(snippet)
+                    filtered = filtered.reset_index(drop=True)
+                    filtered["text"] = snippets
+                    filtered["_source_table"] = f"table_{i}"
+                    filtered["_matched_column"] = col
+                    filtered = filtered[filtered["text"].str.strip() != ""]
                     if not filtered.empty:
-                        filtered = filtered.copy()
-                        snippets = []
-                        for _, r in filtered.iterrows():
-                            cell_text = str(r[col])
-                            td_candidates = [
-                                target_date.strftime("%Y-%m-%d"),
-                                target_date.strftime("%Y/%m/%d"),
-                                f"{target_date.year}年{target_date.month}月{target_date.day}日"
-                            ]
-                            start_idx = -1
-                            chosen_td = None
-                            for td in td_candidates:
-                                if td in cell_text:
-                                    start_idx = cell_text.find(td)
-                                    chosen_td = td
-                                    break
-                            if start_idx != -1:
-                                end_idx = min(len(cell_text), start_idx + len(chosen_td) + num_chars)
-                                snippet = cell_text[start_idx:end_idx]
-                            else:
-                                snippet = ""
-                            snippets.append(snippet)
-                        filtered = filtered.reset_index(drop=True)
-                        filtered["text"] = snippets
-                        filtered["_source_table"] = f"table_{i+1}"
-                        filtered["_matched_column"] = col
-                        filtered = filtered[filtered["text"].str.strip() != ""]
-                        if not filtered.empty:
-                            result_rows.append(filtered)
+                        result_rows.append(filtered)
 
     if not result_rows:
         st.write("從段落中搜尋含有目標日期的文字...")
@@ -345,5 +358,6 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
 
 
