@@ -223,11 +223,11 @@ if uploaded_file is not None:
     result_rows = []
 
     if dfs and prefer_table:
-    st.write(f"偵測到 {len(dfs)} 個表格，以下為各表格的預覽與比對設定：")
+     st.write(f"偵測到 {len(dfs)} 個表格，以下為各表格的預覽與比對設定：")
 
-    result_rows = []
+     result_rows = []
 
-    for i, df in enumerate(dfs, start=1):
+     for i, df in enumerate(dfs, start=1):
         with st.expander(f"📋 表格 {i} 預覽", expanded=True):
             df = df.astype(str)
 
@@ -358,6 +358,7 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
 
 
 
