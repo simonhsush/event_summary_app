@@ -50,18 +50,18 @@ def extract_tables_to_dfs(doc):
         if len(rows) < 2:
             continue
 
-        # --- 改良邏輯：雙層檢查 ---
-        # 1️⃣ 若第一列任何一格有可見字元，直接當標題
-        if any(cell.strip() for cell in rows[0]):
-            header_row_idx = 0
-        else:
-            # 2️⃣ 否則找下一個有內容的列作為標題
-            header_row_idx = next((i for i, r in enumerate(rows) if any(cell.strip() for cell in r)), 0)
+        # --- 核心修法：找出「最有可能是標題列」的那一列 ---
+        # 規則：
+        # 1️⃣ 含最多非空格文字的列
+        # 2️⃣ 欄位數與下一列接近
+        header_candidates = [(i, sum(1 for c in r if c.strip()), len(r)) for i, r in enumerate(rows)]
+        header_candidates = sorted(header_candidates, key=lambda x: (-x[1], -x[2]))
+        header_row_idx = header_candidates[0][0]
 
         header = rows[header_row_idx]
         data = rows[header_row_idx + 1:]
 
-        # 若欄位長度不一致，用 NaN 補齊
+        # 欄位補齊
         max_len = max(len(r) for r in data) if data else len(header)
         header = header + [""] * (max_len - len(header))
         data = [r + [""] * (max_len - len(r)) for r in data]
@@ -342,6 +342,7 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
 
 
 
