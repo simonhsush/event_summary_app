@@ -8,7 +8,6 @@ from dateutil import parser as dateparser
 import docx
 from docx import Document
 from docx.enum.text import WD_COLOR_INDEX
-from lxml import etree
 
 st.set_page_config(page_title="文件日期篩選摘要器", layout="wide")
 st.title("📄 Word 文件 — 找出含指定日期的欄位並產生摘要檔")
@@ -40,48 +39,23 @@ date_regex = re.compile(
     r'(?:(?:\d{4}[/-]\d{1,2}[/-]\d{1,2})|(?:\d{1,2}[/-]\d{1,2}[/-]\d{2,4})|(?:\d{1,2}[\u4e00-\u9fff]{1}\d{1,2}[\u4e00-\u9fff]{0,1}\d{0,2}))'
 )
 
-
 def extract_tables_to_dfs(doc):
     dfs = []
-    # 從 docx.Document 取得底層 XML
-    xml_content = doc.element.xml
-    root = etree.fromstring(xml_content.encode("utf-8"))
-
-    # 抓所有表格節點
-    tables = root.findall(".//w:tbl", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"})
-
-    for tbl in tables:
+    for t in doc.tables:
         rows = []
-        for tr in tbl.findall(".//w:tr", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}):
-            cells = []
-            for tc in tr.findall(".//w:tc", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}):
-                # 每個儲存格抓取所有段落文字
-                texts = [t.text for t in tc.findall(".//w:t", namespaces={"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}) if t.text]
-                cell_text = "\n".join(texts).strip()
-                cells.append(cell_text)
-            if any(cells):
-                rows.append(cells)
-
-        if not rows:
-            continue
-
-        # 使用真正的第一列作為表頭
-        header = rows[0]
-        data = rows[1:]
-
-        # 對齊欄位長度
-        max_len = max(len(r) for r in rows)
-        header += [""] * (max_len - len(header))
-        data = [r + [""] * (max_len - len(r)) for r in data]
-
-        try:
-            df = pd.DataFrame(data, columns=header)
-        except Exception:
-            df = pd.DataFrame(data)
+        for r in t.rows:
+            rows.append([c.text.strip() for c in r.cells])
+        if len(rows) >= 2:
+            header = rows[0]
+            data = rows[1:]
+            try:
+                df = pd.DataFrame(data, columns=header)
+            except Exception:
+                df = pd.DataFrame(data)
+        else:
+            df = pd.DataFrame(rows)
         dfs.append(df)
-
     return dfs
-
 
 def find_date_like_in_text(text):
     found = []
@@ -104,7 +78,7 @@ def filter_df_by_date_in_column(df, column, target_date):
     matches = []
     for idx, cell in df[column].fillna("").items():
         text = str(cell)
-        # text = cell.text.strip().replace(" ", "").replace("\u3000","")
+
         # 🔹 將底線與全形符號正規化
         normalized_text = (
             text
@@ -162,18 +136,37 @@ def export_to_word(data, target_date_str, num_chars, filename="摘要輸出.docx
         data = data.copy()
         data["text"] = data.apply(lambda r: " ".join([str(x) for x in r.values if pd.notna(x)]), axis=1)
 
-    for idx, row in data.iterrows():
-        src = row.get("_source_table", "")
-        col = row.get("_matched_column", "")
-        snippet = str(row.get("text", "")).strip()
+    for idx, row in enumerate(data["text"].astype(str).tolist(), start=1):
+        text = row
+        start_idx = text.find(target_date_str)
+        if start_idx == -1:
+            try:
+                parts = re.findall(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', target_date_str)
+                if parts:
+                    y, m, d = parts[0]
+                    chinese = f"{int(y)}年{int(m)}月{int(d)}日"
+                    start_idx = text.find(chinese)
+                    target_for_slice = chinese
+                else:
+                    target_for_slice = target_date_str
+            except Exception:
+                target_for_slice = target_date_str
+        else:
+            target_for_slice = target_date_str
 
-        p = doc.add_paragraph(f"{idx+1}. 來源: {src}, 欄位: {col}\n")
+        if start_idx != -1:
+            slice_start = start_idx
+            slice_end = min(len(text), slice_start + len(target_for_slice) + num_chars)
+            snippet = text[slice_start:slice_end]
+        else:
+            snippet = ""
+
+        p = doc.add_paragraph(f"{idx}. ")
         if snippet:
             run = p.add_run(snippet)
             run.font.highlight_color = WD_COLOR_INDEX.YELLOW
         else:
             p.add_run("(未找到可擷取的段落)")
-        doc.add_paragraph("----")
 
     doc.save(filename)
     return filename
@@ -191,7 +184,7 @@ col1, col2 = st.columns([2, 1])
 with col1:
     date_mode = st.radio("選擇目標日期：", ("前一個工作日", "輸入指定日期 (YYYY-MM-DD)"))
     if date_mode == "輸入指定日期 (YYYY-MM-DD)":
-        user_date_str = st.text_input("指定日期 (例: 114-10-23)", value="")
+        user_date_str = st.text_input("指定日期 (例: 2025-10-22)", value="")
         try:
             user_date = dateparser.parse(user_date_str).date() if user_date_str.strip() else None
         except Exception:
@@ -349,12 +342,3 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
-
-
-
-
-
-
-
-
-
