@@ -103,8 +103,8 @@ def filter_df_by_date_in_column(df, column, target_date):
         return pd.DataFrame()
     matches = []
     for idx, cell in df[column].fillna("").items():
-        text = str(cell)
-
+        # text = str(cell)
+        cell_text = cell.text.strip().replace(" ", "").replace("\u3000","")
         # 🔹 將底線與全形符號正規化
         normalized_text = (
             text
@@ -191,7 +191,7 @@ col1, col2 = st.columns([2, 1])
 with col1:
     date_mode = st.radio("選擇目標日期：", ("前一個工作日", "輸入指定日期 (YYYY-MM-DD)"))
     if date_mode == "輸入指定日期 (YYYY-MM-DD)":
-        user_date_str = st.text_input("指定日期 (例: 2025-10-22)", value="")
+        user_date_str = st.text_input("指定日期 (例: 114-10-23)", value="")
         try:
             user_date = dateparser.parse(user_date_str).date() if user_date_str.strip() else None
         except Exception:
@@ -349,6 +349,7 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
 
 
 
