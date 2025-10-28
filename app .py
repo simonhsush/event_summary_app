@@ -226,7 +226,24 @@ if uploaded_file is not None:
         st.write(f"偵測到 {len(dfs)} 個表格，正在掃描表格欄位...")
         all_cols = set()
         for df in dfs:
-            all_cols.update(list(df.columns))
+            # 10/28 16:30 修 all_cols.update(list(df.columns))
+            # 🔹 修正版：僅保留真正的欄位名稱，排除重複或誤入的資料列內容
+            for df in dfs:
+              df = df.dropna(axis=1, how='all') # 移除全空白欄
+              header_candidates = list(df.columns)
+
+              # 若表格第一列資料中含與欄名相同的值（常見於 Word 表格解析），則排除
+              if not df.empty:
+                first_row_values = df.iloc[0].astype(str).tolist()
+                clean_headers = [
+                    h for h in header_candidates
+                    if h not in first_row_values and str(h).strip() != ""
+                  ]
+              else:
+                  clean_headers = [h for h in header_candidates if str(h).strip() != ""]
+
+              all_cols.update(clean_headers)
+
         all_cols = [c for c in all_cols if str(c).strip() != ""]
         if all_cols:
             chosen_cols = st.multiselect("選擇要比對的欄位（表格欄位）", options=all_cols, default=all_cols[:2])
@@ -342,3 +359,4 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
