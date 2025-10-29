@@ -340,8 +340,8 @@ if uploaded_file is not None:
         with st.expander(f"📋 全部結果總覽（共 {len(final)} 筆）", expanded=True):
             st.dataframe(final.head(200))
             st.caption(f"顯示前 200 列。目標日期：{target_date_str}")
-    else:
-        st.info("未找到任何符合條件的資料。")
+    #else:
+    #    st.info("未找到任何符合條件的資料。")
 
 
         if download_format == "CSV":
@@ -379,6 +379,7 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
 
 
 
