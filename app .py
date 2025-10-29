@@ -315,33 +315,33 @@ if uploaded_file is not None:
             dfp["_matched_column"] = "text"
             result_rows.append(dfp)
 
-        if result_rows:
-            st.header("找到的結果")
+    if result_rows:
+        st.header("找到的結果")
 
-            for i, dfp in enumerate(result_rows, start=1):
-                # 避免空 DataFrame
-                if dfp is None or dfp.empty:
-                    st.info(f"表格 {i} 沒有找到符合 {target_date_str} 的資料。")
-                    continue
+        for i, dfp in enumerate(result_rows, start=1):
+            # 避免空 DataFrame
+            if dfp is None or dfp.empty:
+                st.info(f"表格 {i} 沒有找到符合 {target_date_str} 的資料。")
+                continue
 
-                # 過濾空白行
-                dfp = dfp[dfp["text"].astype(str).str.strip() != ""].reset_index(drop=True)
+            # 過濾空白行
+            dfp = dfp[dfp["text"].astype(str).str.strip() != ""].reset_index(drop=True)
 
-                # 每個表格結果放進一個可收合區塊
-                with st.expander(f"📊 表格 {i} 的結果（共 {len(dfp)} 筆）", expanded=False):
-                    st.dataframe(dfp.head(200))
-                    st.caption(f"顯示前 200 列。符合目標日期：{target_date_str}")
+            # 每個表格結果放進一個可收合區塊
+            with st.expander(f"📊 表格 {i} 的結果（共 {len(dfp)} 筆）", expanded=False):
+                st.dataframe(dfp.head(200))
+                st.caption(f"顯示前 200 列。符合目標日期：{target_date_str}")
 
-            # ---- 總覽區塊 ----
-            final = pd.concat(result_rows, ignore_index=True, sort=False)
-            final = final[final["text"].astype(str).str.strip() != ""].reset_index(drop=True)
+        # ---- 總覽區塊 ----
+        final = pd.concat(result_rows, ignore_index=True, sort=False)
+        final = final[final["text"].astype(str).str.strip() != ""].reset_index(drop=True)
 
-            st.divider()
-            with st.expander(f"📋 全部結果總覽（共 {len(final)} 筆）", expanded=True):
-                st.dataframe(final.head(200))
-                st.caption(f"顯示前 200 列。目標日期：{target_date_str}")
-        else:
-            st.info("未找到任何符合條件的資料。")
+        st.divider()
+        with st.expander(f"📋 全部結果總覽（共 {len(final)} 筆）", expanded=True):
+            st.dataframe(final.head(200))
+            st.caption(f"顯示前 200 列。目標日期：{target_date_str}")
+    else:
+        st.info("未找到任何符合條件的資料。")
 
 
         if download_format == "CSV":
@@ -379,6 +379,7 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
 
 
 
