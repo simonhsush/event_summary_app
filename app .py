@@ -1,6 +1,13 @@
 # app.py
 import streamlit as st
-from datetime import datetime, timedelta import pandas as pd import io import re from dateutil import parser as dateparser import docx from docx import Document from docx.enum.text import WD_COLOR_INDEX
+from datetime import datetime, timedelta
+import pandas as pd
+import io
+import re
+from dateutil import parser as dateparser
+import docx
+from docx import Document
+from docx.enum.text import WD_COLOR_INDEX
 
 st.set_page_config(page_title="文件日期篩選摘要器", layout="wide")
 st.title("📄 Word 文件 — 找出含指定日期的欄位並產生摘要檔")
@@ -351,4 +358,5 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
 
