@@ -178,7 +178,7 @@ def export_to_word(data, target_date_str, num_chars, filename="摘要輸出.docx
 uploaded_file = st.file_uploader("上傳 Word (.docx) 檔案", type=["docx"])
 st.write("（檔案內容只在本次執行中處理，不會上傳到任何外部伺服器）")
 
-num_chars = st.number_input("請輸入要擷取的字數（從日期字串之後開始計算，預設20）", min_value=1, max_value=1000, value=20)
+num_chars = st.number_input("請輸入要擷取的字數（從日期字串之後開始計算，預設200）", min_value=1, max_value=1000, value=200)
 
 col1, col2 = st.columns([2, 1])
 with col1:
@@ -342,3 +342,4 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
