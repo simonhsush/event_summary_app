@@ -300,12 +300,21 @@ if uploaded_file is not None:
             result_rows.append(dfp)
 
     if result_rows:
+        st.subheader("找到的結果（依表格分開顯示）")
+        total_count = 0
+        for i, df_part in enumerate(result_rows, start=1):
+            df_part = df_part[df_part["text"].astype(str).str.strip() != ""].reset_index(drop=True)
+            if not df_part.empty:
+                count = len(df_part)
+                total_count += count
+                st.markdown(f"**表格 {i}**　來源：`{df_part['_source_table'].iloc[0]}`　比對欄位：`{df_part['_matched_column'].iloc[0]}`　（共 {count} 筆）")
+                st.dataframe(df_part.head(200))
+                st.markdown("---")
+        st.write(f"✅ 共找到 {total_count} 筆符合目標日期 ({target_date_str}) 的項目。")
+
+    # ↓ 以下下載邏輯保持原樣
         final = pd.concat(result_rows, ignore_index=True, sort=False)
         final = final[final["text"].astype(str).str.strip() != ""].reset_index(drop=True)
-
-        st.subheader("找到的結果範例（前 200 列）")
-        st.dataframe(final.head(200))
-        st.write(f"共找到 {len(final)} 筆符合目標日期 ({target_date_str}) 的項目。")
 
         if download_format == "CSV":
             towrite = io.StringIO()
@@ -342,5 +351,6 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
 
 
