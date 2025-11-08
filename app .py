@@ -229,7 +229,7 @@ if uploaded_file is not None:
             all_cols.update(list(df.columns))
         all_cols = [c for c in all_cols if str(c).strip() != ""]
         if all_cols:
-            chosen_cols = st.multiselect("選擇要比對的欄位（表格欄位）", options=all_cols, default=all_cols[:2])
+            chosen_cols = st.multiselect("選擇要比對的欄位（表格欄位）", options=all_cols, default=all_cols)
         else:
             chosen_cols = []
         if chosen_cols:
@@ -342,4 +342,5 @@ if uploaded_file is not None:
             )
     else:
         st.warning("沒有找到符合條件的項目。請確認：\n- Word 是否含有表格或段落中是否有日期字串。\n- 若日期格式特殊，可嘗試手動輸入精確日期字串作為比對條件。")
+
 
